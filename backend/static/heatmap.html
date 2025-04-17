@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Research Activity Heatmap</title>
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+        .heatmap-container {
+            display: flex;
+            justify-content: center;
+            margin-top: 20px;
+        }
+        .tooltip {
+            position: absolute;
+            text-align: center;
+            width: auto;
+            padding: 8px;
+            font-size: 12px;
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            pointer-events: none;
+            visibility: hidden;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Research Activity Heatmap</h2>
+    <div>
+        <label for="timeFilter">Filter by:</label>
+        <select id="timeFilter">
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+        </select>
+    </div>
+    <div class="heatmap-container">
+        <svg id="heatmap"></svg>
+    </div>
+    <div class="tooltip" id="tooltip"></div>
+
+    <script>
+        const apiUrl = "http://127.0.0.1:8000/research_activity"; // FastAPI endpoint
+
+        async function fetchActivityData() {
+            try {
+                const response = await fetch(apiUrl, {
+                    headers: {
+                        "X-API-KEY": "your-api-key-here"
+                    }
+                });
+                if (!response.ok) throw new Error("Failed to fetch data");
+                const data = await response.json();
+                return data.activity_data;  // Ensure API returns structured data
+            } catch (error) {
+                console.error("Error fetching activity data:", error);
+                return [];
+            }
+        }
+
+        async function drawHeatmap(timeFilter = "daily") {
+            const activityData = await fetchActivityData();
+
+            // Define SVG dimensions
+            const width = 900, height = 200;
+            const margin = { top: 20, right: 20, bottom: 30, left: 40 };
+
+            const svg = d3.select("#heatmap")
+                .attr("width", width)
+                .attr("height", height);
+
+            svg.selectAll("*").remove(); // Clear previous heatmap
+
+            // Process data based on time filter
+            const aggregatedData = aggregateData(activityData, timeFilter);
+            const colorScale = d3.scaleLinear()
+                .domain([0, d3.max(aggregatedData, d => d.count) || 1])
+                .range(["#e0e0e0", "#0066ff"]); // Light to dark blue
+
+            // Define time scale
+            const timeScale = d3.scaleBand()
+                .domain(aggregatedData.map(d => d.date))
+                .range([margin.left, width - margin.right])
+                .padding(0.05);
+
+            // Draw heatmap
+            svg.selectAll("rect")
+                .data(aggregatedData)
+                .enter().append("rect")
+                .attr("x", d => timeScale(d.date))
+                .attr("y", margin.top)
+                .attr("width", timeScale.bandwidth())
+                .attr("height", height - margin.bottom - margin.top)
+                .attr("fill", d => colorScale(d.count))
+                .on("mouseover", function (event, d) {
+                    d3.select("#tooltip")
+                        .style("visibility", "visible")
+                        .html(`${d.date}: ${d.count} research sessions`)
+                        .style("top", `${event.pageY - 10}px`)
+                        .style("left", `${event.pageX + 10}px`);
+                })
+                .on("mouseout", () => {
+                    d3.select("#tooltip").style("visibility", "hidden");
+                });
+
+            // Add X-axis
+            svg.append("g")
+                .attr("transform", `translate(0,${height - margin.bottom})`)
+                .call(d3.axisBottom(timeScale).tickFormat(d => d.substring(5)));
+
+            // Add labels
+            svg.append("text")
+                .attr("x", width / 2)
+                .attr("y", height - 5)
+                .attr("text-anchor", "middle")
+                .text("Research Activity Over Time");
+        }
+
+        function aggregateData(data, filter) {
+            const aggregated = {};
+            data.forEach(({ date, count }) => {
+                let key = date;
+                if (filter === "weekly") key = date.slice(0, 7); // YYYY-MM (week grouping)
+                if (filter === "monthly") key = date.slice(0, 7); // YYYY-MM (month grouping)
+                aggregated[key] = (aggregated[key] || 0) + count;
+            });
+            return Object.entries(aggregated).map(([date, count]) => ({ date, count }));
+        }
+
+        document.getElementById("timeFilter").addEventListener("change", (e) => {
+            drawHeatmap(e.target.value);
+        });
+
+        drawHeatmap();
+    </script>
+
+</body>
+</html>
